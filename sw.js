@@ -1,6 +1,6 @@
 // ELWORK Sklad – service worker (offline + aktualizácie)
 // Pri každej novej verzii appky zvýš číslo verzie tu aj v app.js.
-var VERSION = '1.0.2';
+var VERSION = '1.0.3';
 var CACHE = 'elwork-sklad-' + VERSION;
 var SHELL = [
   './',
@@ -18,7 +18,10 @@ var SHELL = [
 ];
 
 self.addEventListener('install', function (e) {
-  e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(SHELL); }).then(function () { return self.skipWaiting(); }));
+  // cache: 'reload' = vždy čerstvé súbory zo servera, nie staré z medzipamäte prehliadača
+  e.waitUntil(caches.open(CACHE).then(function (c) {
+    return c.addAll(SHELL.map(function (u) { return new Request(u, { cache: 'reload' }); }));
+  }).then(function () { return self.skipWaiting(); }));
 });
 
 self.addEventListener('activate', function (e) {
@@ -50,7 +53,7 @@ self.addEventListener('fetch', function (e) {
 
   // config.js a stránka: najprv sieť (aby sa zmeny prejavili), offline z cache
   if (req.mode === 'navigate' || url.pathname.endsWith('/config.js')) {
-    e.respondWith(fetch(req).then(function (res) {
+    e.respondWith(fetch(req.mode === 'navigate' ? new Request(req.url, { cache: 'no-cache' }) : new Request(req, { cache: 'no-cache' })).then(function (res) {
       var copy = res.clone();
       caches.open(CACHE).then(function (c) { c.put(req.mode === 'navigate' ? 'index.html' : req, copy); });
       return res;
