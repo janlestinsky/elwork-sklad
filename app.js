@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  var APP_VERSION = '1.0.2';
+  var APP_VERSION = '1.0.3';
   var CFG = window.SKLAD_CONFIG || {};
   var VAT = Number(CFG.VAT_PERCENT != null ? CFG.VAT_PERCENT : 5);
   var SAME_CODE_PAUSE_MS = 2000; // ten istý kód sa neopakuje, kým je pred kamerou
