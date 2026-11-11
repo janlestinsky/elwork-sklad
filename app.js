@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  var APP_VERSION = '1.0.3';
+  var APP_VERSION = '1.0.4';
   var CFG = window.SKLAD_CONFIG || {};
   var VAT = Number(CFG.VAT_PERCENT != null ? CFG.VAT_PERCENT : 5);
   var SAME_CODE_PAUSE_MS = 2000; // ten istý kód sa neopakuje, kým je pred kamerou
@@ -198,17 +198,31 @@
       (byEan.get(key) || []).concat(byCard.get(key) || []).forEach(function (it) {
         if (found.indexOf(it) < 0) found.push(it);
       });
-      return { items: found };
+      if (found.length) return { items: found };
+      // číslo nie je karta ani EAN – skúsiť v názvoch (napr. „1000V“, „13“)
     }
-    // Text: hľadanie v názve (bez diakritiky, všetky slová)
+    return searchNames(q);
+  }
+
+  // Hľadanie v názve: bez ohľadu na diakritiku a veľké písmená, všetky slová
+  var NAME_LIMIT = 50;
+  function searchNames(q) {
     var words = fold(q).split(/\s+/).filter(Boolean);
-    var res = [];
-    for (var i = 0; i < stock.list.length && res.length < 50; i++) {
+    if (!words.length) return { items: [], text: true, total: 0 };
+    var hits = [];
+    for (var i = 0; i < stock.list.length; i++) {
       var it = stock.list[i];
       var n = it._fold || (it._fold = fold(it.name));
-      if (words.every(function (w) { return n.indexOf(w) >= 0; })) res.push(it);
+      var ok = true;
+      for (var w = 0; w < words.length; w++) { if (n.indexOf(words[w]) < 0) { ok = false; break; } }
+      if (!ok) continue;
+      // poradie: názov začína slovom > slovo na začiatku iného slova > kdekoľvek; potom na sklade
+      var first = words[0];
+      var rank = n.indexOf(first) === 0 ? 0 : (new RegExp('(^|[^a-z0-9])' + first.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).test(n) ? 1 : 2);
+      hits.push({ it: it, rank: rank, out: it.qty > 0 ? 0 : 1 });
     }
-    return { items: res, text: true };
+    hits.sort(function (a, b) { return a.rank - b.rank || a.out - b.out || a.it.name.localeCompare(b.it.name, 'sk'); });
+    return { items: hits.slice(0, NAME_LIMIT).map(function (h) { return h.it; }), text: true, total: hits.length };
   }
 
   function search(query, source) {
@@ -217,11 +231,11 @@
       return false;
     }
     var r = lookup(query);
-    if (r.items.length === 1) renderItem(r.items[0]);
-    else if (r.items.length > 1) renderList(r.items, query, r.text);
+    if (r.items.length === 1 && !(source === 'live' && r.text && r.total > 1)) renderItem(r.items[0]);
+    else if (r.items.length > 0) renderList(r.items, query, r.text, r.total);
     else renderEmpty('Nenájdené: ' + query, source === 'scan'
       ? 'Tento čiarový kód nie je v súbore so zásobami.'
-      : 'Skontrolujte číslo skladovej karty alebo EAN.');
+      : 'Skontrolujte číslo karty, EAN alebo názov tovaru.');
     return r.items.length > 0;
   }
 
@@ -229,8 +243,18 @@
     e.preventDefault();
     var v = els.q.value.trim();
     if (!v) return;
+    clearTimeout(liveTimer);
     search(v, 'manual');
     els.q.blur();
+  });
+
+  // Hľadanie počas písania (pri texte; čísla až po stlačení Hľadať)
+  var liveTimer;
+  els.q.addEventListener('input', function () {
+    clearTimeout(liveTimer);
+    var v = els.q.value.trim();
+    if (!stock || v.length < 2 || /^\d[\d\s]*$/.test(v)) return;
+    liveTimer = setTimeout(function () { search(v, 'live'); }, 250);
   });
 
   /* ---------------- Vykreslenie ---------------- */
@@ -258,15 +282,15 @@
       '</article>';
     // Na mobile posunúť, aby bola vidno cena (kamera skenuje ďalej)
     var bar = els.result.querySelector('.price-bar');
-    if (bar && window.innerWidth < 900) {
+    if (bar && window.innerWidth < 900 && document.activeElement !== els.q) {
       var r = bar.getBoundingClientRect();
       if (r.bottom > window.innerHeight) bar.scrollIntoView({ block: 'end', behavior: 'smooth' });
     }
   }
 
-  function renderList(items, query, isText) {
+  function renderList(items, query, isText, total) {
     var head = isText
-      ? 'Nájdené podľa názvu „' + esc(query) + '“: ' + items.length + (items.length >= 50 ? '+' : '')
+      ? 'Názov „' + esc(query) + '“: ' + (total > items.length ? 'prvých ' + items.length + ' z ' + total + ' – spresnite hľadanie' : items.length + (items.length === 1 ? ' položka' : items.length < 5 ? ' položky' : ' položiek'))
       : 'Kód ' + esc(query) + ' má ' + items.length + ' položky – vyberte:';
     var html = '<div class="list"><div class="list-head">' + head + '</div>';
     items.forEach(function (it, i) {
