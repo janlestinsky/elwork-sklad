@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  var APP_VERSION = '1.0.0';
+  var APP_VERSION = '1.0.2';
   var CFG = window.SKLAD_CONFIG || {};
   var VAT = Number(CFG.VAT_PERCENT != null ? CFG.VAT_PERCENT : 5);
   var SAME_CODE_PAUSE_MS = 2000; // ten istý kód sa neopakuje, kým je pred kamerou
@@ -474,6 +474,52 @@
     }
   });
 
+  /* ---------------- Inštalácia na plochu ---------------- */
+  var installBar = $('installBar'), deferredInstall = null, installDismissed = false;
+  function isInstalled() {
+    return (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+  }
+  function showInstall() {
+    if (deferredInstall && !installDismissed && !isInstalled()) installBar.hidden = false;
+  }
+  window.addEventListener('beforeinstallprompt', function (e) {
+    e.preventDefault();          // vlastná lišta namiesto malého okna Chromu
+    deferredInstall = e;
+    showInstall();
+  });
+  $('installBtn').addEventListener('click', function () {
+    if (!deferredInstall) return;
+    installBar.hidden = true;
+    deferredInstall.prompt();
+    deferredInstall.userChoice.then(function () { deferredInstall = null; }).catch(function () {});
+  });
+  $('installClose').addEventListener('click', function () {
+    installDismissed = true;
+    installBar.hidden = true;
+  });
+  window.addEventListener('appinstalled', function () {
+    deferredInstall = null;
+    installBar.hidden = true;
+    toast('Appka je nainštalovaná – ikona ELWORK Sklad je na ploche.');
+  });
+
+  // iPhone / iPad: Apple neponúka tlačidlo Inštalovať, ukážeme návod
+  var isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  var iosHintOff = false;
+  try { iosHintOff = localStorage.getItem('sklad-ios-hint') === 'off'; } catch (e) {}
+  if (isIOS && !isInstalled() && !iosHintOff) {
+    $('installTitle').textContent = 'Pridať appku na plochu';
+    $('installDesc').innerHTML = 'Ťuknite na ' +
+      '<svg class="share-ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-label="Zdieľať" role="img"><path d="M12 15V3"/><path d="m7 8 5-5 5 5"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>' +
+      ' <b>Zdieľať</b> a potom <b>Pridať na plochu</b>.';
+    $('installBtn').hidden = true;
+    installBar.hidden = false;
+    $('installClose').addEventListener('click', function () {
+      try { localStorage.setItem('sklad-ios-hint', 'off'); } catch (e) {}
+    });
+  }
+
   /* ---------------- Štart ---------------- */
   // Požiadať Android, aby uložené dáta appky nemazal pri čistení miesta
   if (navigator.storage && navigator.storage.persist) {
@@ -481,8 +527,12 @@
   }
   renderIdle();
   idbGet('stock').then(function (saved) {
-    if (saved && saved.items) { setStock(saved); renderIdle(); }
-  }).catch(function () {});
+    if (saved && saved.items) { setStock(saved); renderIdle(); return; }
+    // Prvé otvorenie: hneď vypýtať kód predajne a stiahnuť sklad
+    if (navigator.onLine !== false) reloadStock();
+  }).catch(function () {
+    if (navigator.onLine !== false) reloadStock();
+  });
 
   // Ak už bola kamera povolená, zapne sa sama
   var camWasOn = false;
