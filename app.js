@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  var APP_VERSION = '1.0.4';
+  var APP_VERSION = '1.0.5';
   var CFG = window.SKLAD_CONFIG || {};
   var VAT = Number(CFG.VAT_PERCENT != null ? CFG.VAT_PERCENT : 5);
   var SAME_CODE_PAUSE_MS = 2000; // ten istý kód sa neopakuje, kým je pred kamerou
@@ -138,13 +138,19 @@
     askKey().then(function (k) { if (k) { setKey(k); reloadStock(); } });
   });
 
-  function reloadStock() {
-    if (!CFG.GAS_URL) { toast('V config.js chýba GAS_URL (adresa Apps Scriptu).', true); return; }
+  var loading = false;
+  // opts.auto = automatická aktualizácia na pozadí (bez otravných hlásení pri chybe)
+  function reloadStock(opts) {
+    var auto = !!(opts && opts.auto);
+    if (loading) return;
+    if (!CFG.GAS_URL) { if (!auto) toast('V config.js chýba GAS_URL (adresa Apps Scriptu).', true); return; }
     var key = getKey();
     if (!key) {
+      if (auto) return;
       askKey().then(function (k) { if (k) { setKey(k); reloadStock(); } });
       return;
     }
+    loading = true;
     els.reloadBtn.disabled = true;
     els.reloadBtn.classList.add('loading');
     els.reloadLabel.textContent = 'Načítavam…';
@@ -160,13 +166,13 @@
           fileUpdated: data.fileUpdated, items: data.items };
         setStock(saved);
         renderIdle();
-        toast('Sklad načítaný: ' + qtyFmt.format(data.count) + ' položiek');
+        toast((auto ? 'Sklad automaticky aktualizovaný: ' : 'Sklad načítaný: ') + qtyFmt.format(data.count) + ' položiek');
         return idbSet('stock', saved).catch(function () {
           toast('Sklad sa nepodarilo uložiť do zariadenia, po zatvorení appky ho načítajte znova.', true);
         });
       })
       .catch(function (err) {
-        if (badKey) return;
+        if (badKey || auto) return;
         if (navigator.onLine === false) {
           toast('Ste offline. Sklad sa dá načítať len s internetom.' +
             (stock ? ' Appka používa sklad z ' + fmtDate(stock.loadedAt) + '.' : ''), true);
@@ -176,6 +182,7 @@
           (stock ? ' Ostáva posledný načítaný.' : ''), true);
       })
       .then(function () {
+        loading = false;
         els.reloadBtn.disabled = false;
         els.reloadBtn.classList.remove('loading');
         els.reloadLabel.textContent = 'Načítať sklad';
@@ -186,7 +193,33 @@
         }
       });
   }
-  els.reloadBtn.addEventListener('click', reloadStock);
+  els.reloadBtn.addEventListener('click', function () { reloadStock(); });
+
+  /* ---------------- Automatická aktualizácia skladu ----------------
+     Pri otvorení appky, po návrate do appky a po pripojení na internet
+     sa appka spýta servera, či je na Disku novší súbor. Ak áno, stiahne ho. */
+  var CHECK_EVERY_MS = 5 * 60 * 1000;   // najčastejšie raz za 5 minút
+  var lastCheck = 0;
+  function checkForUpdate(force) {
+    if (loading || !CFG.GAS_URL || !getKey() || navigator.onLine === false) return;
+    if (!stock) { reloadStock({ auto: true }); return; }
+    var now = Date.now();
+    if (!force && now - lastCheck < CHECK_EVERY_MS) return;
+    lastCheck = now;
+    var url = CFG.GAS_URL + (CFG.GAS_URL.indexOf('?') < 0 ? '?' : '&') +
+      'action=info&key=' + encodeURIComponent(getKey()) + '&t=' + now;
+    fetch(url, { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (info) {
+        if (!info || !info.ok) return;
+        if (info.fileUpdated && info.fileUpdated !== stock.fileUpdated) reloadStock({ auto: true });
+      })
+      .catch(function () {});
+  }
+  window.addEventListener('online', function () { checkForUpdate(true); });
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) checkForUpdate(false);
+  });
 
   /* ---------------- Vyhľadávanie ---------------- */
   function lookup(query) {
@@ -551,7 +584,7 @@
   }
   renderIdle();
   idbGet('stock').then(function (saved) {
-    if (saved && saved.items) { setStock(saved); renderIdle(); return; }
+    if (saved && saved.items) { setStock(saved); renderIdle(); checkForUpdate(true); return; }
     // Prvé otvorenie: hneď vypýtať kód predajne a stiahnuť sklad
     if (navigator.onLine !== false) reloadStock();
   }).catch(function () {
