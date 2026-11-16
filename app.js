@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  var APP_VERSION = '1.0.5';
+  var APP_VERSION = '1.0.6';
   var CFG = window.SKLAD_CONFIG || {};
   var VAT = Number(CFG.VAT_PERCENT != null ? CFG.VAT_PERCENT : 5);
   var SAME_CODE_PAUSE_MS = 2000; // ten istý kód sa neopakuje, kým je pred kamerou
@@ -96,6 +96,30 @@
     var arr = map.get(key);
     if (arr) arr.push(item); else map.set(key, [item]);
   }
+  /* Dátum údajov = kedy bol súbor so zásobami vytvorený na Disku (export z Money),
+     nie kedy si ho telefón stiahol. */
+  function stockDate() { return stock ? (stock.fileUpdated || stock.loadedAt) : null; }
+  function dayDiff(d) {
+    var a = new Date(d); a.setHours(0, 0, 0, 0);
+    var b = new Date(); b.setHours(0, 0, 0, 0);
+    return Math.round((b - a) / 86400000);
+  }
+  function renderStockDate() {
+    var ageEl = $('stockAge');
+    var iso = stockDate();
+    if (!iso) { els.loadedAt.textContent = 'ešte nenačítaný'; ageEl.textContent = ''; return; }
+    els.loadedAt.textContent = fmtDate(iso);
+    var days = dayDiff(iso);
+    var txt = days <= 0 ? 'dnes' : days === 1 ? 'včera' : 'pred ' + days + (days < 5 ? ' dňami' : ' dňami');
+    var hours = (Date.now() - new Date(iso).getTime()) / 3600000;
+    var old = hours > 48;   // cez víkend (So večer → Po ráno) ešte v poriadku
+    ageEl.textContent = old ? txt + ' – staršie údaje, skontrolujte export' : txt;
+    ageEl.className = 'age' + (old ? ' old' : '');
+    ageEl.title = stock && stock.loadedAt ? 'Stiahnuté do telefónu: ' + fmtDate(stock.loadedAt) : '';
+  }
+  // obnoviť text „dnes / včera“ aj keď je appka otvorená cez polnoc
+  setInterval(function () { if (stock) renderStockDate(); }, 60000);
+
   function setStock(data) {
     stock = data;
     byCard = new Map(); byEan = new Map();
@@ -104,7 +128,7 @@
       addTo(byCard, digitsKey(it.card), it);
       String(it.ean).split(/[;,\s]+/).forEach(function (e) { addTo(byEan, digitsKey(e), it); });
     });
-    els.loadedAt.textContent = fmtDate(data.loadedAt);
+    renderStockDate();
   }
 
   /* ---------------- Kód predajne (heslo uložené len v zariadení) ---------------- */
@@ -175,7 +199,7 @@
         if (badKey || auto) return;
         if (navigator.onLine === false) {
           toast('Ste offline. Sklad sa dá načítať len s internetom.' +
-            (stock ? ' Appka používa sklad z ' + fmtDate(stock.loadedAt) + '.' : ''), true);
+            (stock ? ' Appka používa sklad z ' + fmtDate(stockDate()) + '.' : ''), true);
           return;
         }
         toast('Sklad sa nepodarilo načítať: ' + (err.message || err) +
