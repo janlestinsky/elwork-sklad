@@ -61,6 +61,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .sync-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .sync-text .muted { font-size: 12px; }
 .sync-text strong { font-size: 14px; font-weight: 600; }
+.sync-text .age { font-size: 12px; font-weight: 600; color: var(--tile-label); }
+.sync-text .age.old { color: var(--warn); }
 
 .btn-primary {
   height: 44px; padding: 0 16px; border: none; border-radius: 12px;
@@ -258,6 +260,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   .sync-text { text-align: right; }
   .sync-text .muted { font-size: 13px; }
   .sync-text strong { font-size: 16px; }
+  .sync-text .age { font-size: 13px; }
   .btn-primary { height: 48px; padding: 0 20px; font-size: 16px; }
   .theme-toggle button { width: 48px; height: 42px; }
 
