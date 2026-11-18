@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  var APP_VERSION = '1.0.6';
+  var APP_VERSION = '1.0.8';
   var CFG = window.SKLAD_CONFIG || {};
   var VAT = Number(CFG.VAT_PERCENT != null ? CFG.VAT_PERCENT : 5);
   var SAME_CODE_PAUSE_MS = 2000; // ten istý kód sa neopakuje, kým je pred kamerou
@@ -217,7 +217,63 @@
         }
       });
   }
-  els.reloadBtn.addEventListener('click', function () { reloadStock(); });
+  /* „Načítať sklad“: požiada server, aby hneď prečítal zásoby z databázy Money,
+     počká, kým nový súbor príde na Disk (zvyčajne do 1–2 minút), a stiahne ho.
+     Ak server neodpovie, stiahne aspoň posledný dostupný sklad. */
+  var REQUEST_WAIT_MS = 3 * 60 * 1000, REQUEST_POLL_MS = 5000;
+  function gasUrl(action) {
+    return CFG.GAS_URL + (CFG.GAS_URL.indexOf('?') < 0 ? '?' : '&') +
+      'action=' + action + '&key=' + encodeURIComponent(getKey()) + '&t=' + Date.now();
+  }
+  function setBusy(label) {
+    els.reloadBtn.disabled = !!label;
+    els.reloadBtn.classList.toggle('loading', !!label);
+    els.reloadLabel.textContent = label || 'Načítať sklad';
+  }
+  function requestFresh() {
+    if (loading) return;
+    if (!CFG.GAS_URL) { toast('V config.js chýba GAS_URL (adresa Apps Scriptu).', true); return; }
+    if (!getKey()) { reloadStock(); return; }          // vypýta kód predajne
+    if (navigator.onLine === false) {
+      toast('Ste offline. Sklad sa dá načítať len s internetom.' +
+        (stock ? ' Appka používa sklad z ' + fmtDate(stockDate()) + '.' : ''), true);
+      return;
+    }
+    loading = true;
+    setBusy('Aktualizujem…');
+    var before = stock ? stock.fileUpdated : null;
+    var started = Date.now();
+    function finish(msg) {
+      loading = false;
+      setBusy(null);
+      if (msg) toast(msg, true);
+      reloadStock();
+    }
+    fetch(gasUrl('request'), { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        if (!res || !res.ok || !res.requestedAt) { finish(); return; }   // starší Apps Script / chybný kód
+        toast('Server pripravuje aktuálny sklad…');
+        (function poll() {
+          if (Date.now() - started > REQUEST_WAIT_MS) {
+            finish('Server zatiaľ neodpovedal – načítaný posledný dostupný sklad.');
+            return;
+          }
+          setTimeout(function () {
+            fetch(gasUrl('info'), { cache: 'no-store' })
+              .then(function (r) { return r.json(); })
+              .then(function (info) {
+                if (info && info.ok && info.fileUpdated && info.fileUpdated !== before &&
+                    info.fileUpdated >= res.requestedAt) { finish(); return; }
+                poll();
+              })
+              .catch(poll);
+          }, REQUEST_POLL_MS);
+        })();
+      })
+      .catch(function () { finish(); });
+  }
+  els.reloadBtn.addEventListener('click', requestFresh);
 
   /* ---------------- Automatická aktualizácia skladu ----------------
      Pri otvorení appky, po návrate do appky a po pripojení na internet
@@ -236,7 +292,46 @@
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (info) {
         if (!info || !info.ok) return;
-        if (info.fileUpdated && info.fileUpdated !== stock.fileUpdated) reloadStock({ auto: true });
+        if (info.fileUpdated && info.fileUpdated !== stock.fileUpdated) { reloadStock({ auto: true }); return; }
+        // Údaje sú staršie ako pár minút → potichu požiadať server o čerstvé z databázy
+        var age = Date.now() - new Date(info.fileUpdated || 0).getTime();
+        if (age > FRESH_MS) backgroundRefresh();
+      })
+      .catch(function () {});
+  }
+
+  /* Tichá požiadavka na čerstvý sklad pri otvorení appky (bez blokovania tlačidla).
+     Server ju zachytí do ~1 minúty; keď príde nový súbor, appka ho sama načíta. */
+  var FRESH_MS = 5 * 60 * 1000, lastBgRequest = 0, bgPolling = false;
+  function backgroundRefresh() {
+    var now = Date.now();
+    if (bgPolling || loading || now - lastBgRequest < FRESH_MS) return;
+    lastBgRequest = now;
+    var before = stock ? stock.fileUpdated : null;
+    fetch(gasUrl('request'), { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        if (!res || !res.ok || !res.requestedAt) return;   // starší Apps Script
+        bgPolling = true;
+        var started = Date.now();
+        (function poll() {
+          if (Date.now() - started > 2 * 60 * 1000 || document.hidden) { bgPolling = false; return; }
+          setTimeout(function () {
+            if (loading) { poll(); return; }
+            fetch(gasUrl('info'), { cache: 'no-store' })
+              .then(function (r) { return r.json(); })
+              .then(function (info) {
+                if (info && info.ok && info.fileUpdated && info.fileUpdated !== before &&
+                    info.fileUpdated >= res.requestedAt) {
+                  bgPolling = false;
+                  reloadStock({ auto: true });
+                  return;
+                }
+                poll();
+              })
+              .catch(poll);
+          }, 10000);
+        })();
       })
       .catch(function () {});
   }
