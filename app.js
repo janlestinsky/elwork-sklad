@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  var APP_VERSION = '1.0.8';
+  var APP_VERSION = '1.0.9';
   var CFG = window.SKLAD_CONFIG || {};
   var VAT = Number(CFG.VAT_PERCENT != null ? CFG.VAT_PERCENT : 5);
   var SAME_CODE_PAUSE_MS = 2000; // ten istý kód sa neopakuje, kým je pred kamerou
@@ -90,7 +90,7 @@
   var byCard = new Map();     // karta (bez úvodných núl) -> [položky]
   var byEan = new Map();      // EAN (bez úvodných núl) -> [položky]
 
-  function toItem(r) { return { card: r[0], name: r[1], qty: Number(r[2]) || 0, price: Number(r[3]) || 0, ean: r[4] || '' }; }
+  function toItem(r) { return { card: r[0], name: r[1], qty: Number(r[2]) || 0, price: Number(r[3]) || 0, ean: r[4] || '', unit: String(r[5] || '').trim() || 'ks' }; }
   function addTo(map, key, item) {
     if (!key) return;
     var arr = map.get(key);
@@ -413,23 +413,24 @@
   function renderItem(it) {
     var g = gross(it.price);
     var zero = it.qty <= 0 ? ' zero' : '';
+    var per = it.unit !== 'ks' ? ' za 1 ' + esc(it.unit) : '';
     els.result.innerHTML =
       '<article class="card">' +
         '<h1>' + esc(it.name) + '</h1>' +
         '<div class="tiles tiles-phone">' +
           '<div class="tile"><span class="label">Skladová karta</span><span class="val">' + esc(it.card) + '</span></div>' +
           '<div class="tile"><span class="label">EAN</span><span class="val">' + (esc(it.ean) || '—') + '</span></div>' +
-          '<div class="tile"><span class="label">Na sklade</span><span class="big' + zero + '">' + qtyFmt.format(it.qty) + ' <small>ks</small></span></div>' +
-          '<div class="tile"><span class="label">Cena bez DPH</span><span class="val small">' + money.format(it.price) + ' €</span></div>' +
+          '<div class="tile"><span class="label">Na sklade</span><span class="big' + zero + '">' + qtyFmt.format(it.qty) + ' <small>' + esc(it.unit) + '</small></span></div>' +
+          '<div class="tile"><span class="label">Cena bez DPH' + per + '</span><span class="val small">' + money.format(it.price) + ' €</span></div>' +
         '</div>' +
         '<div class="tablet-meta">' +
           '<span>Skladová karta <b>' + esc(it.card) + '</b></span>' +
           '<span>EAN <b>' + (esc(it.ean) || '—') + '</b></span>' +
-          '<span>Bez DPH ' + money.format(it.price) + ' €</span>' +
+          '<span>Bez DPH ' + money.format(it.price) + ' €' + per + '</span>' +
         '</div>' +
         '<div class="tablet-row">' +
-          '<div class="tile"><span class="label">Na sklade</span><span class="big' + zero + '">' + qtyFmt.format(it.qty) + ' <small>ks</small></span></div>' +
-          '<div class="price-bar"><span class="label">Cena s DPH ' + VAT + ' %</span><span class="val">' + money.format(g) + ' €</span></div>' +
+          '<div class="tile"><span class="label">Na sklade</span><span class="big' + zero + '">' + qtyFmt.format(it.qty) + ' <small>' + esc(it.unit) + '</small></span></div>' +
+          '<div class="price-bar"><span class="label">Cena s DPH ' + VAT + ' %' + per + '</span><span class="val">' + money.format(g) + ' €</span></div>' +
         '</div>' +
       '</article>';
     // Na mobile posunúť, aby bola vidno cena (kamera skenuje ďalej)
@@ -449,7 +450,7 @@
       html += '<button type="button" data-i="' + i + '">' +
         '<span><span class="l-name">' + esc(it.name) + '</span>' +
         '<span class="l-meta" style="display:block">Karta ' + esc(it.card) + (it.ean ? ' · EAN ' + esc(it.ean) : '') + '</span></span>' +
-        '<span class="l-right">' + money.format(gross(it.price)) + ' €<small>' + qtyFmt.format(it.qty) + ' ks</small></span>' +
+        '<span class="l-right">' + money.format(gross(it.price)) + ' €<small>' + qtyFmt.format(it.qty) + ' ' + esc(it.unit) + '</small></span>' +
       '</button>';
     });
     els.result.innerHTML = html + '</div>';
