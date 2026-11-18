@@ -1,6 +1,6 @@
 // ELWORK Sklad – service worker (offline + aktualizácie)
 // Pri každej novej verzii appky zvýš číslo verzie tu aj v app.js.
-var VERSION = '1.0.6';
+var VERSION = '1.0.8';
 var CACHE = 'elwork-sklad-' + VERSION;
 var SHELL = [
   './',
